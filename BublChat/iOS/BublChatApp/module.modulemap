@@ -1,0 +1,4 @@
+module BublChatApp {
+    header "BublChatApp.h"
+    export *
+} 
