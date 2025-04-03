@@ -42,6 +42,8 @@ struct BublAnimationView: View {
                 SurprisedFace()
             case .confused:
                 ConfusedFace()
+            case .listening:
+                ListeningFace()
             }
         }
     }
@@ -206,12 +208,69 @@ struct ConfusedFace: View {
     }
 }
 
+// Add a new ListeningFace struct
+struct ListeningFace: View {
+    @State private var pulseScale: CGFloat = 1.0
+    
+    var body: some View {
+        ZStack {
+            // Eyes - attentive
+            HStack(spacing: 40) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 24, height: 24)
+                    .overlay(
+                        Circle()
+                            .fill(Color.black)
+                            .frame(width: 12, height: 12)
+                    )
+                
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 24, height: 24)
+                    .overlay(
+                        Circle()
+                            .fill(Color.black)
+                            .frame(width: 12, height: 12)
+                    )
+            }
+            
+            // Mouth - slightly open, speaking
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.white)
+                .frame(width: 30, height: 15)
+                .offset(y: 35)
+            
+            // Audio visualization
+            HStack(spacing: 5) {
+                ForEach(0..<4) { i in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white)
+                        .frame(width: 4, height: CGFloat(10 + (i * 5)))
+                        .scaleEffect(y: pulseScale, anchor: .bottom)
+                        .animation(
+                            Animation.easeInOut(duration: 0.5)
+                                .repeatForever()
+                                .delay(Double(i) * 0.1),
+                            value: pulseScale
+                        )
+                }
+            }
+            .offset(y: -40)
+            .onAppear {
+                pulseScale = 0.5
+            }
+        }
+    }
+}
+
 // Bubl emotions enum
 enum BublEmotion {
     case happy
     case thinking
     case surprised
     case confused
+    case listening
 }
 
 struct BublAnimationView_Previews: PreviewProvider {
@@ -221,6 +280,7 @@ struct BublAnimationView_Previews: PreviewProvider {
             BublAnimationView(emotion: .thinking)
             BublAnimationView(emotion: .surprised)
             BublAnimationView(emotion: .confused)
+            BublAnimationView(emotion: .listening)
         }
         .padding()
         .previewLayout(.sizeThatFits)

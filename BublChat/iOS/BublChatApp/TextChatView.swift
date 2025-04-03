@@ -38,6 +38,7 @@ struct TextChatView: View {
             
             // Bubl animation at the top
             BublAnimationView(emotion: bublEmotion)
+                .frame(width: 120, height: 120)
                 .padding(.vertical)
             
             // Chat messages list
@@ -84,7 +85,7 @@ struct TextChatView: View {
             }
             .padding()
         }
-        .navigationTitle("Chat with Bubl")
+        .navigationTitle("Text Bubl")
         .onAppear {
             // Try to load existing conversations first
             viewModel.loadConversations()
@@ -129,9 +130,9 @@ struct MessageBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
                 HStack(alignment: .bottom, spacing: 8) {
-                    // Bubl avatar - replaced with our full animation in the top section
+                    // Bubl avatar - small icon next to messages
                     Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 32))
+                        .font(.system(size: 24))
                         .foregroundColor(.purple)
                     
                     Text(message.content)

@@ -12,7 +12,7 @@ struct BublChatApp: App {
     var body: some Scene {
         WindowGroup {
             if authViewModel.isAuthenticated {
-                MainDashboardView()
+                HomeSelectionView()
                     .environmentObject(authViewModel)
             } else {
                 AuthenticationView()
