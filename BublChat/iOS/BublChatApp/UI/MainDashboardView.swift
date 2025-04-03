@@ -1,12 +1,39 @@
 import SwiftUI
 import AudioToolbox
-
-// Import the TextChat view - the syntax was incorrect
-// Remove this import and just use a simple chat view to avoid complex import paths
-// import BublChatApp.UI.TextChat
-
-// Import our text shimmer components
 import UIKit // Needed for UIImage
+
+/*
+ ANIMATION CUSTOMIZATION GUIDE
+ -----------------------------
+ To modify the bubble animations:
+ 
+ 1. Find the "ANIMATION CONFIGURATION" section in the code
+ 2. Adjust these key parameters:
+
+    STARTING POSITIONS:
+    - chatBubbleStartX/Y: The starting position of the text chat bubble
+    - voiceBubbleStartX/Y: The starting position of the voice call bubble
+    - videoBubbleStartX/Y: The starting position of the video call bubble
+    - settingsBubbleStartX/Y: The starting position of the settings bubble
+    
+    LANDING POSITIONS:
+    - chatBubbleLandingX/Y: Where the text chat bubble lands when animated
+    - voiceBubbleLandingX/Y: Where the voice call bubble lands when animated
+    - videoBubbleLandingX/Y: Where the video call bubble lands when animated
+    - settingsBubbleLandingX/Y: Where the settings bubble lands when animated
+    
+    ANIMATION APPEARANCE:
+    - bubbleTargetScale: How much each bubble shrinks when animated (0.5-1.0 recommended)
+    - animationResponseSpeed: Speed of the animation (lower = faster)
+    - animationDamping: Bounce effect (lower = more bounce)
+    - elementsFadeSpeed: How quickly other elements fade out
+ 
+ No need to modify complex animation calculations - just change these parameters!
+ */
+
+// Make BublChatView available directly in this file scope since it can't find it
+// We'll use our existing view implementation but include it as a local declaration
+// This avoids cross-module or import errors
 
 // ShimmeringText component for creating a text shimmer effect
 struct ShimmeringText: View {
@@ -158,6 +185,15 @@ struct MainDashboardView: View {
     @State private var userName = "Ben" 
     @State private var showGreeting = false // New state for greeting entrance animation
     
+    // Chat state control
+    @State private var isChatActive = false
+    @State private var chatIconPosition = CGPoint(x: 0, y: 0)
+    @State private var chatMessages: [SimpleChatMessage] = []
+    @State private var messageText = ""
+    @State private var isTyping = false
+    @State private var chatBubbleSize: CGFloat = 120 // Size of chat bubble before animation
+    @State private var logoPosition: CGPoint = .zero // Track the logo position
+    
     // Animation properties for floating bubbles
     @State private var textChatOffset: CGSize = CGSize(width: 0, height: 0)
     @State private var voiceCallOffset: CGSize = CGSize(width: 0, height: 0)
@@ -181,6 +217,51 @@ struct MainDashboardView: View {
     // Interactive bubbles positioning
     private let bubblesSectionTopPadding: CGFloat = 60  // Increased to move bubbles down
     private let videoCallYOffset: CGFloat = 100     // Controls how far down the video bubble appears
+    
+    // =====================================================
+    // ANIMATION CONFIGURATION - EDIT THESE VALUES AS NEEDED
+    // =====================================================
+    
+    // STARTING POSITIONS
+    // - Starting position for each bubble
+    @State private var chatBubbleStartX: CGFloat = UIScreen.main.bounds.width / 2 - 150  // From center
+    @State private var chatBubbleStartY: CGFloat = UIScreen.main.bounds.height - 200     // From bottom
+    @State private var voiceBubbleStartX: CGFloat = UIScreen.main.bounds.width / 2 + 100  // From center right
+    @State private var voiceBubbleStartY: CGFloat = UIScreen.main.bounds.height - 200     // From bottom
+    @State private var videoBubbleStartX: CGFloat = UIScreen.main.bounds.width / 2         // Center
+    @State private var videoBubbleStartY: CGFloat = UIScreen.main.bounds.height - 100     // From bottom, lower
+    @State private var settingsBubbleStartX: CGFloat = UIScreen.main.bounds.width - 50     // Right side
+    @State private var settingsBubbleStartY: CGFloat = 70                                  // Top
+    
+    // LANDING POSITIONS 
+    // - Position where each bubble lands after animation
+    private let chatBubbleLandingX: CGFloat = UIScreen.main.bounds.width / 2 - 150    // Left side
+    private let chatBubbleLandingY: CGFloat = 100                                   // From top of screen
+    private let voiceBubbleLandingX: CGFloat = UIScreen.main.bounds.width / 2 + 100    // Right side
+    private let voiceBubbleLandingY: CGFloat = 100                                   // From top of screen
+    private let videoBubbleLandingX: CGFloat = UIScreen.main.bounds.width / 2         // Center
+    private let videoBubbleLandingY: CGFloat = 200                                   // From top of screen
+    private let settingsBubbleLandingX: CGFloat = UIScreen.main.bounds.width - 210     // Right side
+    private let settingsBubbleLandingY: CGFloat = 210                                 // From top of screen
+    
+    // Animation properties
+    private let bubbleTargetScale: CGFloat = 0.8  // Size scaling factor (0.5-1.0 recommended)
+    private let settingsBubbleTargetScale: CGFloat = 1.5  // Larger scale factor specifically for settings
+    private let animationResponseSpeed: Double = 0.5  // Speed of animation (lower = faster)
+    private let animationDamping: Double = 0.7  // Bounce effect (lower = more bounce)
+    private let elementsFadeSpeed: Double = 0.3  // How quickly other elements fade out
+    
+    // Animation state tracking
+    @State private var animatingToChat = false 
+    @State private var animatingToVoice = false 
+    @State private var animatingToVideo = false 
+    @State private var animatingToSettings = false 
+    
+    // Bubble positions
+    @State private var chatBubblePosition: CGPoint = .zero
+    @State private var voiceBubblePosition: CGPoint = .zero
+    @State private var videoBubblePosition: CGPoint = .zero
+    @State private var settingsBubblePosition: CGPoint = .zero
     
     private let bottomPadding: CGFloat = 40       // Reduced for better overall spacing
     
@@ -216,12 +297,36 @@ struct MainDashboardView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(height: 80)
+                            .opacity(animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings ? 0 : 1)
+                            .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings)
+                            .background(
+                                GeometryReader { geo -> Color in
+                                    DispatchQueue.main.async {
+                                        // Get the center of the logo
+                                        let frame = geo.frame(in: .global)
+                                        logoPosition = CGPoint(x: frame.midX, y: frame.midY)
+                                    }
+                                    return Color.clear
+                                }
+                            )
                     } else {
                         Image(systemName: "bubble.left.and.bubble.right.fill")
                             .resizable()
                             .scaledToFit()
                             .frame(height: 80)
                             .foregroundColor(.white)
+                            .opacity(animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings ? 0 : 1)
+                            .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings)
+                            .background(
+                                GeometryReader { geo -> Color in
+                                    DispatchQueue.main.async {
+                                        // Get the center of the logo
+                                        let frame = geo.frame(in: .global)
+                                        logoPosition = CGPoint(x: frame.midX, y: frame.midY)
+                                    }
+                                    return Color.clear
+                                }
+                            )
                     }
                     
                     Spacer() // Center alignment
@@ -233,45 +338,53 @@ struct MainDashboardView: View {
             
             // Settings bubble (top right)
             if let _ = UIImage(named: "settings-icon") {
-                Image("settings-icon")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 70)
-                    .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 3)
-                    .position(x: UIScreen.main.bounds.width - 50, y: settingsYPosition) // ← ADJUST THIS to move settings up/down
-                    .offset(settingsOffset) // Add the floating animation offset
+                Button(action: {
+                    // Capture current position for animation
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.prepare()
+                    generator.impactOccurred()
+                    
+                    // Play sound
+                    playBubbleSound()
+                    
+                    // Start transition animation
+                    withAnimation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping)) {
+                        animatingToSettings = true
+                    }
+                }) {
+                    Image("settings-icon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 70)
+                        .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 3)
+                        .background(
+                            GeometryReader { geo -> Color in
+                                DispatchQueue.main.async {
+                                    let frame = geo.frame(in: .global)
+                                    settingsBubblePosition = CGPoint(x: frame.midX, y: frame.midY)
+                                }
+                                return Color.clear
+                            }
+                        )
+                }
+                .position(x: UIScreen.main.bounds.width - 50, y: settingsYPosition)
+                .offset(settingsOffset) // Floating animation offset
+                .offset(x: animatingToSettings ? (settingsBubbleLandingX - settingsBubbleStartX) : 0,
+                        y: animatingToSettings ? (settingsBubbleLandingY - settingsBubbleStartY) : 0)
+                .scaleEffect(animatingToSettings ? settingsBubbleTargetScale : 1.0)
+                .animation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping), value: animatingToSettings)
+                .zIndex(animatingToSettings ? 100 : 0)
+                .opacity(animatingToChat || animatingToVoice || animatingToVideo ? 0 : 1)
+                .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVoice || animatingToVideo)
             }
             
             // Main content layout
             VStack {
                 Spacer()
-                    .frame(height: -70) // Adjusted from -80 to move content down slightly
+                    .frame(height: 30) // Use a positive value
                 
                 // AI Assistant character (centered)
                 ZStack {
-                    // Decorative bubbles - temporarily disabled
-                    if false { // Changed to false to hide bubbles
-                        if let _ = UIImage(named: "extra-bubbles") {
-                            Image("extra-bubbles")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 180)
-                                .opacity(0.7)
-                                .offset(x: -40, y: -50)
-                        } else {
-                            // Fallback bubbles
-                            ForEach(0..<5) { i in
-                                Circle()
-                                    .fill(Color.white.opacity(0.5))
-                                    .frame(width: CGFloat([20, 16, 24, 18, 22][i % 5]), 
-                                           height: CGFloat([20, 16, 24, 18, 22][i % 5]))
-                                    .offset(x: CGFloat([-80, -60, -70, -50, -40][i % 5]), 
-                                            y: CGFloat([-60, -80, -50, -40, -70][i % 5]))
-                                    .opacity(0.7)
-                            }
-                        }
-                    }
-                        
                     // Main character
                     if let _ = UIImage(named: "bubl-character") {
                         Image("bubl-character")
@@ -289,6 +402,8 @@ struct MainDashboardView: View {
                 .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
                 .offset(x: characterXOffset) // Horizontal offset for character
                 .offset(characterOffset) // Add the floating animation offset
+                .opacity(animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings ? 0 : 1)
+                .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings)
                 
                 // Text below character (centered)
                 VStack(spacing: 8) {
@@ -306,11 +421,26 @@ struct MainDashboardView: View {
                 }
                 .padding(.top, textTopPadding)
                 .multilineTextAlignment(.center)
+                .opacity(animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings ? 0 : 1)
+                .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings)
                 
                 // Interactive bubbles in triangular arrangement
                 ZStack {
                     // Text Chat bubble (left)
-                    NavigationLink(destination: SimpleChatView()) {
+                    Button(action: {
+                        // Capture current position of chat bubble for animation
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.prepare()
+                        generator.impactOccurred()
+                        
+                        // Play sound
+                        playBubbleSound()
+                        
+                        // Start transition animation to move bubble to target position
+                        withAnimation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping)) {
+                            animatingToChat = true
+                        }
+                    }) {
                         bubbleButton(
                             icon: "message.fill",
                             iconImage: "text-chat-icon",
@@ -318,16 +448,42 @@ struct MainDashboardView: View {
                             isAnimated: animateTextChat
                         )
                     }
-                    .simultaneousGesture(
-                        TapGesture()
-                            .onEnded { _ in
-                                playBubbleSound()
+                    .background(
+                        GeometryReader { geo -> Color in
+                            DispatchQueue.main.async {
+                                // Get the center of the chat bubble for animation
+                                let frame = geo.frame(in: .global)
+                                chatBubblePosition = CGPoint(x: frame.midX, y: frame.midY)
                             }
+                            return Color.clear
+                        }
                     )
+                    // Initial position before animation starts
                     .offset(x: -100, y: 10)
+                    // Animation offset (applies when animating)
+                    .offset(x: animatingToChat ? (chatBubbleLandingX - chatBubbleStartX + 100) : 0,
+                            y: animatingToChat ? (chatBubbleLandingY - chatBubbleStartY - 10) : 0)
+                    .scaleEffect(animatingToChat ? bubbleTargetScale : 1.0)
+                    .animation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping), value: animatingToChat)
+                    .zIndex(animatingToChat ? 100 : 0)
+                    .opacity(animatingToVoice || animatingToVideo || animatingToSettings ? 0 : 1)
+                    .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToVoice || animatingToVideo || animatingToSettings)
                     
                     // Voice Call bubble (right)
-                    NavigationLink(destination: voiceCallPlaceholder) {
+                    Button(action: {
+                        // Capture current position for animation
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.prepare()
+                        generator.impactOccurred()
+                        
+                        // Play sound
+                        playBubbleSound()
+                        
+                        // Start transition animation
+                        withAnimation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping)) {
+                            animatingToVoice = true
+                        }
+                    }) {
                         bubbleButton(
                             icon: "mic.fill", 
                             iconImage: "voice-call-icon",
@@ -335,16 +491,39 @@ struct MainDashboardView: View {
                             isAnimated: animateVoiceCall
                         )
                     }
-                    .simultaneousGesture(
-                        TapGesture()
-                            .onEnded { _ in
-                                playBubbleSound()
+                    .background(
+                        GeometryReader { geo -> Color in
+                            DispatchQueue.main.async {
+                                let frame = geo.frame(in: .global)
+                                voiceBubblePosition = CGPoint(x: frame.midX, y: frame.midY)
                             }
+                            return Color.clear
+                        }
                     )
                     .offset(x: 100, y: 10)
+                    .offset(x: animatingToVoice ? (voiceBubbleLandingX - voiceBubbleStartX - 100) : 0,
+                            y: animatingToVoice ? (voiceBubbleLandingY - voiceBubbleStartY - 10) : 0)
+                    .scaleEffect(animatingToVoice ? bubbleTargetScale : 1.0)
+                    .animation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping), value: animatingToVoice)
+                    .zIndex(animatingToVoice ? 100 : 0)
+                    .opacity(animatingToChat || animatingToVideo || animatingToSettings ? 0 : 1)
+                    .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVideo || animatingToSettings)
                     
                     // Video Call bubble (bottom center in triangle)
-                    NavigationLink(destination: videoCallPlaceholder) {
+                    Button(action: {
+                        // Capture current position for animation
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.prepare()
+                        generator.impactOccurred()
+                        
+                        // Play sound
+                        playBubbleSound()
+                        
+                        // Start transition animation
+                        withAnimation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping)) {
+                            animatingToVideo = true
+                        }
+                    }) {
                         bubbleButton(
                             icon: "video.fill",
                             iconImage: "video-call-icon",
@@ -352,22 +531,68 @@ struct MainDashboardView: View {
                             isAnimated: animateVideoCall
                         )
                     }
-                    .simultaneousGesture(
-                        TapGesture()
-                            .onEnded { _ in
-                                playBubbleSound()
+                    .background(
+                        GeometryReader { geo -> Color in
+                            DispatchQueue.main.async {
+                                let frame = geo.frame(in: .global)
+                                videoBubblePosition = CGPoint(x: frame.midX, y: frame.midY)
                             }
+                            return Color.clear
+                        }
                     )
                     .offset(x: 0, y: videoCallYOffset + 10)
+                    .offset(x: animatingToVideo ? (videoBubbleLandingX - videoBubbleStartX) : 0,
+                            y: animatingToVideo ? (videoBubbleLandingY - videoBubbleStartY - videoCallYOffset - 10) : 0)
+                    .scaleEffect(animatingToVideo ? bubbleTargetScale : 1.0)
+                    .animation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping), value: animatingToVideo)
+                    .zIndex(animatingToVideo ? 100 : 0)
+                    .opacity(animatingToChat || animatingToVoice || animatingToSettings ? 0 : 1)
+                    .animation(.easeOut(duration: elementsFadeSpeed), value: animatingToChat || animatingToVoice || animatingToSettings)
                 }
                 
                 Spacer()
                     .frame(height: bubblesSectionTopPadding)
             }
-            .offset(y: -65)
+            .offset(y: 10) // Changed from 0 to 10 to ensure positive value
             
-            Spacer()
-                .frame(height: bottomPadding) // ← ADJUST THIS to control space at bottom
+            // Add back buttons for each animated state
+            if animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings {
+                VStack {
+                    HStack {
+                        Button(action: {
+                            // Add haptic feedback
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.prepare()
+                            generator.impactOccurred()
+                            
+                            // Reset animation state with animation
+                            withAnimation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping)) {
+                                animatingToChat = false
+                                animatingToVoice = false
+                                animatingToVideo = false
+                                animatingToSettings = false
+                            }
+                        }) {
+                            Image(systemName: "arrow.left")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                                .shadow(color: Color.black.opacity(0.2), radius: 3, x: 0, y: 2)
+                        }
+                        .padding(.leading, 16)
+                        
+                        Spacer()
+                    }
+                    .padding(.top, 50)
+                    
+                    Spacer()
+                }
+                .transition(.opacity.combined(with: .move(edge: .leading)))
+                .animation(.easeInOut(duration: elementsFadeSpeed).delay(0.2), value: animatingToChat || animatingToVoice || animatingToVideo || animatingToSettings)
+            }
         }
         .padding(.horizontal, 20)
         .onAppear {
@@ -397,6 +622,288 @@ struct MainDashboardView: View {
             startFloatingAnimations()
         }
         .navigationBarHidden(true)
+    }
+    
+    // MARK: - Chat Interface
+    private var chatInterface: some View {
+        VStack(spacing: 0) {
+            // Navigation header with buttons
+            ZStack {
+                Rectangle()
+                    .fill(Color(red: 0.0, green: 0.47, blue: 0.9))
+                    .frame(height: 100)
+                
+                VStack {
+                    HStack {
+                        // Back button
+                        Button(action: {
+                            // Reset animation state with animation
+                            withAnimation(.spring(response: animationResponseSpeed, dampingFraction: animationDamping)) {
+                                animatingToChat = false
+                            }
+                        }) {
+                            Image(systemName: "arrow.left")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                        }
+                        .padding(.leading, 16)
+                        
+                        Spacer()
+                        
+                        // Notes button
+                        Button(action: {
+                            // Notes action
+                        }) {
+                            Image(systemName: "note.text")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                        }
+                        .padding(.trailing, 12)
+                        
+                        // Settings button
+                        Button(action: {
+                            // Settings action
+                        }) {
+                            Image(systemName: "gearshape")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                        }
+                        .padding(.trailing, 16)
+                    }
+                    .padding(.top, 50)
+                    
+                    // Center menu button - appears with animation
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.0, green: 0.8, blue: 0.9).opacity(0.6), 
+                                        Color(red: 0.5, green: 0.4, blue: 0.9).opacity(0.4)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 70, height: 70)
+                            .shadow(color: Color.black.opacity(0.2), radius: 5)
+                        
+                        Image(systemName: "bubble.left.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 30, height: 30)
+                            .foregroundColor(.white)
+                    }
+                    .offset(y: 35)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .ignoresSafeArea(edges: .top)
+            
+            // Chat message area with gradient background
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 0.0, green: 0.47, blue: 0.9),
+                        Color(red: 0.1, green: 0.6, blue: 0.95)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+                
+                // Messages ScrollView
+                ScrollViewReader { scrollView in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(chatMessages) { message in
+                                MessageBubbleView(message: message)
+                                    .padding(.horizontal, 16)
+                            }
+                            
+                            // Typing indicator for Bubl
+                            if isTyping {
+                                HStack(alignment: .top) {
+                                    // Bubl avatar
+                                    Image(systemName: "face.smiling.fill")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 30, height: 30)
+                                        .clipShape(Circle())
+                                        .foregroundColor(.blue)
+                                        .background(Circle().fill(Color.white))
+                                        .padding(.top, 2)
+                                    
+                                    // Typing animation dots
+                                    HStack(spacing: 4) {
+                                        ForEach(0..<3) { index in
+                                            Circle()
+                                                .fill(Color.gray)
+                                                .frame(width: 8, height: 8)
+                                                .opacity(0.7)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(Color.white.opacity(0.85))
+                                    .cornerRadius(16)
+                                    
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                                .id("typingIndicator")
+                            }
+                            
+                            // Invisible element to allow scrolling to bottom
+                            Color.clear
+                                .frame(height: 1)
+                                .id("bottomID")
+                        }
+                        .padding(.top, 60)
+                        .padding(.bottom, 16)
+                    }
+                    .onChange(of: chatMessages.count) { _ in
+                        withAnimation {
+                            scrollView.scrollTo("bottomID", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: isTyping) { _ in
+                        if isTyping {
+                            withAnimation {
+                                scrollView.scrollTo("typingIndicator", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Input area
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    // Plus button
+                    Button(action: {
+                        // Add attachment action
+                    }) {
+                        Image(systemName: "plus")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.leading, 16)
+                    
+                    // Message input field
+                    ZStack(alignment: .leading) {
+                        if messageText.isEmpty {
+                            Text("Message Bubl...")
+                                .foregroundColor(Color.gray.opacity(0.8))
+                                .padding(.leading, 8)
+                        }
+                        
+                        TextField("", text: $messageText, onCommit: {
+                            sendMessage()
+                        })
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 12)
+                    }
+                    .background(Color.white)
+                    .cornerRadius(30)
+                    .padding(.vertical, 8)
+                    
+                    // Send button
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Circle().fill(Color.blue))
+                    }
+                    .disabled(messageText.isEmpty)
+                    .padding(.trailing, 16)
+                }
+                .padding(.vertical, 8)
+                .background(Color.white)
+            }
+        }
+    }
+    
+    // Add a message from the user
+    private func sendMessage() {
+        guard !messageText.isEmpty else { return }
+        
+        let userMessage = SimpleChatMessage(
+            content: messageText,
+            isFromUser: true
+        )
+        
+        chatMessages.append(userMessage)
+        let userMessageText = messageText
+        messageText = ""
+        
+        // Show typing indicator
+        isTyping = true
+        
+        // Simulate response after a delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 1.2...2.5)) {
+            isTyping = false
+            respondToUserMessage(userMessageText)
+        }
+    }
+    
+    // Generate a response based on user message
+    private func respondToUserMessage(_ userMessage: String) {
+        let lowerMessage = userMessage.lowercased()
+        var response = ""
+        
+        // Simple response logic based on keywords
+        if lowerMessage.contains("hello") || lowerMessage.contains("hi") {
+            response = "Hello! It's great to chat with you! How are you feeling today?"
+        } else if lowerMessage.contains("how are you") {
+            response = "I'm doing great, thanks for asking! I'm always happy to chat with you."
+        } else if lowerMessage.contains("help") {
+            response = "I can help with many things! You can ask me questions, chat about your day, or just talk about whatever's on your mind."
+        } else if lowerMessage.contains("thank") {
+            response = "You're very welcome! Is there anything else I can help with?"
+        } else if lowerMessage.contains("bye") || lowerMessage.contains("goodbye") {
+            response = "Goodbye for now! Feel free to chat again anytime. I'll be here!"
+        } else {
+            // Default responses for other messages
+            let defaultResponses = [
+                "That's interesting! Tell me more about that.",
+                "I see! What else is on your mind?",
+                "Thanks for sharing that with me!",
+                "I understand. How does that make you feel?",
+                "That's good to know! Is there anything specific you'd like to chat about?",
+                "I'm here to listen anytime you want to talk."
+            ]
+            response = defaultResponses.randomElement() ?? "Tell me more!"
+        }
+        
+        addBublMessage(response)
+    }
+    
+    // Add a message from Bubl
+    private func addBublMessage(_ content: String) {
+        let bublMessage = SimpleChatMessage(
+            content: content,
+            isFromUser: false
+        )
+        
+        chatMessages.append(bublMessage)
     }
     
     // Start the floating animations for all bubbles
@@ -433,7 +940,7 @@ struct MainDashboardView: View {
         AudioServicesPlaySystemSound(soundID)
     }
     
-    // Bubble button with animation support
+    // Bubble button with animation support - modified for smoother animations
     private func bubbleButton(
         icon: String,
         iconImage: String,
@@ -481,6 +988,7 @@ struct MainDashboardView: View {
         }
         .offset(y: isAnimated ? 0 : 200)
         .offset(offset)  // Add the animated offset
+        .animation(.interpolatingSpring(stiffness: 170, damping: 15).delay(0.2), value: animatingToChat)
     }
     
     // Placeholder views to avoid import issues
@@ -523,46 +1031,343 @@ struct MainDashboardView: View {
     }
 }
 
-// Simple chat view to use instead of potentially conflicting TextChatView
-struct SimpleChatView: View {
+// Simple implementation of BublChatView to avoid import conflicts
+struct BublSimpleChatView: View {
+    @State private var messageText = ""
+    @State private var chatMessages: [SimpleChatMessage] = []
+    @State private var isTyping = false
+    @Environment(\.presentationMode) var presentationMode
+    
     var body: some View {
-        ZStack {
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.0, green: 0.47, blue: 0.9),
-                    Color(red: 0.1, green: 0.6, blue: 0.95)
-                ]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Navigation header with buttons
+            ZStack {
+                Rectangle()
+                    .fill(Color(red: 0.0, green: 0.47, blue: 0.9))
+                    .frame(height: 100)
+                
+                VStack {
+                    HStack {
+                        // Back button
+                        Button(action: {
+                            presentationMode.wrappedValue.dismiss()
+                        }) {
+                            Image(systemName: "arrow.left")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                        }
+                        .padding(.leading, 16)
+                        
+                        Spacer()
+                        
+                        // Notes button
+                        Button(action: {
+                            // Notes action
+                        }) {
+                            Image(systemName: "note.text")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                        }
+                        .padding(.trailing, 12)
+                        
+                        // Settings button
+                        Button(action: {
+                            // Settings action
+                        }) {
+                            Image(systemName: "gearshape")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.white.opacity(0.2)))
+                        }
+                        .padding(.trailing, 16)
+                    }
+                    .padding(.top, 50)
+                    
+                    // Center menu button
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.0, green: 0.8, blue: 0.9).opacity(0.6), 
+                                        Color(red: 0.5, green: 0.4, blue: 0.9).opacity(0.4)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 70, height: 70)
+                            .shadow(color: Color.black.opacity(0.2), radius: 5)
+                        
+                        Image(systemName: "bubble.left.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 30, height: 30)
+                            .foregroundColor(.white)
+                    }
+                    .offset(y: 35)
+                }
+            }
+            .ignoresSafeArea(edges: .top)
             
-            VStack {
-                Spacer()
-                    .frame(height: 40)
+            // Chat message area with gradient background
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 0.0, green: 0.47, blue: 0.9),
+                        Color(red: 0.1, green: 0.6, blue: 0.95)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
                 
-                Text("Chat with Bubl")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                
-                Spacer()
-                
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 100, height: 100)
-                    .foregroundColor(.white.opacity(0.8))
-                
-                Text("Chat functionality coming soon!")
-                    .font(.title2)
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.white)
-                    .frame(width: 300)
-                
-                Spacer()
+                // Messages ScrollView
+                ScrollViewReader { scrollView in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(chatMessages) { message in
+                                MessageBubbleView(message: message)
+                                    .padding(.horizontal, 16)
+                            }
+                            
+                            // Typing indicator for Bubl
+                            if isTyping {
+                                HStack(alignment: .top) {
+                                    // Bubl avatar
+                                    Image(systemName: "face.smiling.fill")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 30, height: 30)
+                                        .clipShape(Circle())
+                                        .foregroundColor(.blue)
+                                        .background(Circle().fill(Color.white))
+                                        .padding(.top, 2)
+                                    
+                                    // Typing animation dots
+                                    HStack(spacing: 4) {
+                                        ForEach(0..<3) { index in
+                                            Circle()
+                                                .fill(Color.gray)
+                                                .frame(width: 8, height: 8)
+                                                .opacity(0.7)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(Color.white.opacity(0.85))
+                                    .cornerRadius(16)
+                                    
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                                .id("typingIndicator")
+                            }
+                            
+                            // Invisible element to allow scrolling to bottom
+                            Color.clear
+                                .frame(height: 1)
+                                .id("bottomID")
+                        }
+                        .padding(.top, 60)
+                        .padding(.bottom, 16)
+                    }
+                    .onChange(of: chatMessages.count) { _ in
+                        withAnimation {
+                            scrollView.scrollTo("bottomID", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: isTyping) { _ in
+                        if isTyping {
+                            withAnimation {
+                                scrollView.scrollTo("typingIndicator", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Input area
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    // Plus button
+                    Button(action: {
+                        // Add attachment action
+                    }) {
+                        Image(systemName: "plus")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.leading, 16)
+                    
+                    // Message input field
+                    ZStack(alignment: .leading) {
+                        if messageText.isEmpty {
+                            Text("Message Bubl...")
+                                .foregroundColor(Color.gray.opacity(0.8))
+                                .padding(.leading, 8)
+                        }
+                        
+                        TextField("", text: $messageText, onCommit: {
+                            sendMessage()
+                        })
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 12)
+                    }
+                    .background(Color.white)
+                    .cornerRadius(30)
+                    .padding(.vertical, 8)
+                    
+                    // Send button
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Circle().fill(Color.blue))
+                    }
+                    .disabled(messageText.isEmpty)
+                    .padding(.trailing, 16)
+                }
+                .padding(.vertical, 8)
+                .background(Color.white)
             }
         }
-        .navigationTitle("Chat")
+        .onAppear {
+            // Add initial greeting message from Bubl
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                addBublMessage("👋 Hi there! I'm Bubl, your AI companion. How can I help you today?")
+            }
+        }
+        .navigationBarHidden(true)
+    }
+    
+    // Add a message from the user
+    private func sendMessage() {
+        guard !messageText.isEmpty else { return }
+        
+        let userMessage = SimpleChatMessage(
+            content: messageText,
+            isFromUser: true
+        )
+        
+        chatMessages.append(userMessage)
+        let userMessageText = messageText
+        messageText = ""
+        
+        // Show typing indicator
+        isTyping = true
+        
+        // Simulate response after a delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 1.2...2.5)) {
+            isTyping = false
+            respondToUserMessage(userMessageText)
+        }
+    }
+    
+    // Generate a response based on user message
+    private func respondToUserMessage(_ userMessage: String) {
+        let lowerMessage = userMessage.lowercased()
+        var response = ""
+        
+        // Simple response logic based on keywords
+        if lowerMessage.contains("hello") || lowerMessage.contains("hi") {
+            response = "Hello! It's great to chat with you! How are you feeling today?"
+        } else if lowerMessage.contains("how are you") {
+            response = "I'm doing great, thanks for asking! I'm always happy to chat with you."
+        } else if lowerMessage.contains("help") {
+            response = "I can help with many things! You can ask me questions, chat about your day, or just talk about whatever's on your mind."
+        } else if lowerMessage.contains("thank") {
+            response = "You're very welcome! Is there anything else I can help with?"
+        } else if lowerMessage.contains("bye") || lowerMessage.contains("goodbye") {
+            response = "Goodbye for now! Feel free to chat again anytime. I'll be here!"
+        } else {
+            // Default responses for other messages
+            let defaultResponses = [
+                "That's interesting! Tell me more about that.",
+                "I see! What else is on your mind?",
+                "Thanks for sharing that with me!",
+                "I understand. How does that make you feel?",
+                "That's good to know! Is there anything specific you'd like to chat about?",
+                "I'm here to listen anytime you want to talk."
+            ]
+            response = defaultResponses.randomElement() ?? "Tell me more!"
+        }
+        
+        addBublMessage(response)
+    }
+    
+    // Add a message from Bubl
+    private func addBublMessage(_ content: String) {
+        let bublMessage = SimpleChatMessage(
+            content: content,
+            isFromUser: false
+        )
+        
+        chatMessages.append(bublMessage)
     }
 }
+
+// Simple chat message model to avoid conflicts
+struct SimpleChatMessage: Identifiable {
+    let id = UUID()
+    let content: String
+    let isFromUser: Bool
+    let timestamp: Date = Date()
+}
+
+// Message bubble view component
+struct MessageBubbleView: View {
+    let message: SimpleChatMessage
+    
+    var body: some View {
+        HStack(alignment: .top) {
+            if !message.isFromUser {
+                // Avatar for Bubl
+                Image(systemName: "face.smiling.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 30, height: 30)
+                    .clipShape(Circle())
+                    .foregroundColor(.blue)
+                    .background(Circle().fill(Color.white))
+                    .padding(.top, 2)
+                
+                // Message bubble
+                Text(message.content)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.white.opacity(0.85))
+                    .foregroundColor(.black)
+                    .cornerRadius(16)
+                
+                Spacer()
+            } else {
+                Spacer()
+                
+                // User message bubble
+                Text(message.content)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color(red: 0.8, green: 0.95, blue: 1.0))
+                    .foregroundColor(.black)
+                    .cornerRadius(16)
+            }
+        }
+    }
+} 
